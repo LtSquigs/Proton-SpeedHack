@@ -1541,7 +1541,7 @@ class Session:
             return True
 
         def is_bool(num):
-            return num == "0" or num == "1"
+            return str(num) == "0" or str(num) == "1"
 
         def read_config_from_file(path):
             path = os.path.expanduser(path)
@@ -1561,7 +1561,7 @@ class Session:
                 return {
                     'speed': str(data['speed']) if ('speed' in data and is_float(data['speed'])) else None,
                     'toggle': str(data['toggle']) if ('toggle' in data and is_bool(data['toggle'])) else None,
-                    'key': str(convert_keycodes(data['key'])) if ('key' in data) else None
+                    'keys': str(convert_keycodes(data['keys'])) if ('keys' in data) else None
                 }
             except:
                 return {}
