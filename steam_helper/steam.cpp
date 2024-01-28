@@ -43,6 +43,7 @@
 #include <limits.h>
 #define _USE_GNU
 #include <dlfcn.h>
+#include <signal.h>
 
 #pragma push_macro("_WIN32")
 #pragma push_macro("__cdecl")
@@ -1555,6 +1556,8 @@ BOOL is_ptraced(void)
     return ret;
 }
 
+static DWORD WINAPI speedhack_thread(void *arg);
+
 int main(int argc, char *argv[])
 {
     HANDLE wait_handle = INVALID_HANDLE_VALUE;
@@ -1638,9 +1641,11 @@ int main(int argc, char *argv[])
             CreateThread(NULL, 0, steam_drm_thread, child, 0, NULL);
     }
 
-    if (game_process)
+    if (game_process) {
         NtSetInformationProcess( GetCurrentProcess(), (PROCESSINFOCLASS)1000 /* ProcessWineMakeProcessSystem */,
                                  &wait_handle, sizeof(HANDLE *) );
+        CreateThread(NULL, 0, speedhack_thread, child, 0, NULL);
+    }
 
     if(wait_handle != INVALID_HANDLE_VALUE)
     {
@@ -1660,4 +1665,208 @@ int main(int argc, char *argv[])
     }
 
     return rc;
+}
+
+/*
+ Speedhack thread and hooks
+*/
+
+static bool speedhack_enabled = false;
+static bool speedhack_keys_enabled = true;
+static double speedhack_multiplier = 2.5;
+static unsigned int speedhack_activation_key = VK_PRIOR;
+static unsigned int speedhack_activation_key_2 = 0;
+static unsigned int speedhack_activation_key_3 = 0;
+static unsigned int speedhack_activation_key_4 = 0;
+static bool speedhack_toggle = 0;
+
+/*
+    Read settings from the proton python wrapper that are passed in via
+    the ENV vars.
+
+    SPEEDHACK_SPEED: (double) Determines the speed of the speedhack
+    SPEEDHACK_TOGGLE (bool) Turns on/off Toggle or Hold mode.
+    SPEEDHACK_KEYS   (int) Up to 4 keycodes that activate/deactivate the hack.
+*/
+static void speedhack_setup_env() {
+    WINE_TRACE("Checking ENV\n");
+    const char *speed = getenv("SPEEDHACK_SPEED");
+    if(speed && *speed) {
+        WINE_TRACE("SPEEDHACK_SPEED: %s\n", speed);
+        speedhack_multiplier=stod(std::string(speed));
+    }
+
+    const char *toggle = getenv("SPEEDHACK_TOGGLE");
+    if(toggle && *toggle) {
+        WINE_TRACE("SPEEDHACK_TOGGLE: %s\n", toggle);
+        speedhack_toggle=stoi(std::string(toggle));
+    }
+
+    const char *keys = getenv("SPEEDHACK_KEYS");
+    unsigned int key_value = 0;
+    if(keys && *keys) {
+        WINE_TRACE("SPEEDHACK_KEYS: %s\n", keys);
+        key_value=stoi(std::string(keys));
+        speedhack_activation_key = key_value & 0xFF;
+        speedhack_activation_key_2 = (key_value >> 8) & 0xFF;
+        speedhack_activation_key_3 = (key_value >> 16) & 0xFF;
+        speedhack_activation_key_4 = (key_value >> 24) & 0xFF;
+    }   
+}
+
+/*
+    The following signal handlers are used to adjust the settings of
+    the speedhack.
+
+    External programs can signal the "steam.exe" process with either
+    SIGUSR1 or SIGUSR2 and an integer value using sigqueue with a payload.
+
+    The intention behind these signals is to allow a potenetial extension
+    to the Deck UI to control/manage the speedhack (such as Steam Decky
+    Loader)
+*/
+
+/*
+    SIGUSR1 is used to update the speed and toggle fields of the speedhack.
+*/
+void speedhack_speed_toggle_signal(int sig, siginfo_t *sip, void *ptr) {
+    WINE_TRACE("Received signal to update speed/toggle settings.\n");
+
+    // The structure of this value is two flags packed into one signal
+    // Bit 1: Flag to indicate if toggle is being updated
+    // Bit 2: Value of toggle if updated
+    // Bit 3: Toggles on and off the speedhack if 1
+    // Bit 4: Toggles on and off keyboard input for the speedhack
+    // Bit 5: Flag to indicate if speed is being updated
+    // Bit 6+: Speed value as an integer (multiplied by 10)
+    unsigned int sig_value = sip->si_value.sival_int;
+    unsigned int update_toggle = sig_value & 1;
+    unsigned int toggle_value = (sig_value >> 1) & 1;
+    unsigned int toggle_speedhack = (sig_value >> 2) & 1;
+    unsigned int toggle_keys = (sig_value >> 3) & 1;
+    unsigned int update_speed = (sig_value >> 4) & 1;
+    unsigned int speed_value = (sig_value >> 5);
+
+    if (update_toggle > 0) {
+        WINE_TRACE("Changing Toggle To: %d\n", update_toggle);
+        speedhack_toggle = toggle_value;
+    }
+
+    if (update_speed > 0) {
+        WINE_TRACE("Changing Speed To: %d\n", speed_value);
+        speedhack_multiplier = (speed_value / 10.0);
+    }
+
+    if (toggle_keys > 0) {
+        speedhack_keys_enabled = !speedhack_keys_enabled;
+    }
+
+    if (toggle_speedhack > 0) {
+        WINE_TRACE("Toggling Speedhack");
+        if(!speedhack_enabled) {
+            wine_update_speedhack_multiplier((unsigned long)(speedhack_multiplier * 10));
+            speedhack_enabled = true;
+        } else if(speedhack_enabled) {
+            wine_update_speedhack_multiplier(10);
+            speedhack_enabled = false;
+        }
+    }
+}
+
+/*
+    SIGUSR2 is used to update which keys are used to activate the
+    speedhack.
+*/
+void speedhack_key_signal(int sig, siginfo_t *sip, void *ptr) {
+    WINE_TRACE("Received signal to update activation key.\n");
+    unsigned int sig_value = sip->si_value.sival_int;
+    speedhack_activation_key = sig_value & 0xFF;
+    speedhack_activation_key_2 = (sig_value >> 8) & 0xFF;
+    speedhack_activation_key_3 = (sig_value >> 16) & 0xFF;
+    speedhack_activation_key_4 = (sig_value >> 24) & 0xFF;
+}
+
+static void speedhack_setup_signals() {
+    WINE_TRACE("Setting up signal updates.\n");
+
+    struct sigaction speed_toggle_flags;
+    memset(&speed_toggle_flags, 0, sizeof (speed_toggle_flags));
+    speed_toggle_flags.sa_sigaction = speedhack_speed_toggle_signal;
+    speed_toggle_flags.sa_flags = SA_RESTART|SA_SIGINFO;
+    sigaction(SIGUSR1, &speed_toggle_flags, NULL);
+
+    struct sigaction key_flags;
+    memset(&key_flags, 0, sizeof (key_flags));
+    key_flags.sa_sigaction = speedhack_key_signal;
+    key_flags.sa_flags = SA_RESTART|SA_SIGINFO;
+    sigaction(SIGUSR2, &key_flags, NULL);
+}
+
+static bool speedhack_key_pressed() {
+    int pressed = 1;
+
+    if (speedhack_activation_key != 0) {
+        pressed = pressed && GetAsyncKeyState(speedhack_activation_key);
+    }
+
+    if (speedhack_activation_key_2 != 0) {
+        pressed = pressed && GetAsyncKeyState(speedhack_activation_key_2);
+    }
+
+    if (speedhack_activation_key_3 != 0) {
+        pressed = pressed && GetAsyncKeyState(speedhack_activation_key_3);
+    }
+
+    if (speedhack_activation_key_4 != 0) {
+        pressed = pressed && GetAsyncKeyState(speedhack_activation_key_4);
+    }
+    
+    if (!speedhack_activation_key && !speedhack_activation_key_2 && !speedhack_activation_key_3 && !speedhack_activation_key_4) {
+        pressed = 0;
+    }
+
+    return pressed;
+}
+
+static DWORD WINAPI speedhack_thread(void *arg)
+{
+
+    WINE_TRACE("Speedhack thread!\n");
+
+    speedhack_setup_env();
+    speedhack_setup_signals();
+
+    bool key_pressed = false;
+    bool last_key_pressed = 0; // Used to only trigger on initial press of key for toggle
+
+    do {
+        key_pressed = speedhack_key_pressed();
+            
+        if (speedhack_keys_enabled) {
+            if(speedhack_toggle) {
+                if(!speedhack_enabled && key_pressed && !last_key_pressed) {
+                    wine_update_speedhack_multiplier((unsigned long)(speedhack_multiplier * 10));
+                    speedhack_enabled = true;
+                } else if(speedhack_enabled && key_pressed && !last_key_pressed) {
+                    wine_update_speedhack_multiplier(10);
+                    speedhack_enabled = false;
+                }
+            } else {
+                if (!speedhack_enabled && key_pressed) {
+                    wine_update_speedhack_multiplier((unsigned long)(speedhack_multiplier * 10));
+                    speedhack_enabled = true;
+                }else if (speedhack_enabled && !key_pressed) {
+                    wine_update_speedhack_multiplier(10);
+                    speedhack_enabled = false;
+                }
+            }
+        }
+
+        last_key_pressed = key_pressed;
+
+        Sleep(50);
+    } while(1);
+
+
+    return 0;
 }

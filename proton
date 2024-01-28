@@ -1552,6 +1552,8 @@ class Session:
                 s = dll + "=" + setting
         append_to_env_str(self.env, "WINEDLLOVERRIDES", s, ";")
 
+        self.speedhack_setup_env()
+
     def dump_dbg_env(self, f):
         f.write("PATH=\"" + self.env["PATH"] + "\" \\\n")
         f.write("\tTERM=\"xterm\" \\\n") #XXX
@@ -1710,6 +1712,116 @@ class Session:
                 remote_debug_proc.communicate()
 
         return rc
+
+    # Speedhack Python Extensions below here
+    def speedhack_setup_env(self):
+        if (self.log_file):
+            self.log_file.write("Setting up the speedhack environment\n")
+        
+        # This is just a mapping of key names to win32 keycodes
+        # probably a better way to do this but this should work for most cases
+        keycodes = { "back": 0x08, "tab": 0x09, "enter": 0x0D, "shift": 0x10, "control": 0x11, "alt": 0x12, "caps_lock": 0x14, "esc": 0x1B, "space": 0x20, "page_up": 0x21, "page_down": 0x22, "end": 0x23, "home": 0x24, "left": 0x25, "up": 0x26, "right": 0x27, "down": 0x28, "insert": 0x2D, "delete": 0x2E, "0": 0x30, "1": 0x31, "2": 0x32, "3": 0x33, "4": 0x34, "5": 0x35, "6": 0x36, "7": 0x37, "8": 0x38, "9": 0x39, "a": 0x41, "b": 0x42, "c": 0x43, "d": 0x44,"e": 0x45,"f": 0x46, "g": 0x47, "h": 0x48, "i": 0x49, "j": 0x4A, "k": 0x5B, "l": 0x5C, "m": 0x5D, "n": 0x5E, "o": 0x4F, "p": 0x50, "q": 0x51, "r": 0x52, "s": 0x53, "t": 0x54, "u": 0x55, "v": 0x56, "w": 0x57, "x": 0x58, "y": 0x59, "z": 0x5A, "left_win": 0x5B, "right_win": 0x5C, "num0": 0x60, "num1": 0x61, "num2": 0x62, "num3": 0x63, "num4": 0x64, "num5": 0x65, "num6": 0x66, "num7": 0x67, "num8": 0x68, "num9": 0x69, "multiply": 0x6A, "add": 0x6B, "separator": 0x6C, "subtract": 0x6D, "decimal": 0x6E, "divide": 0x6F, "f1": 0x70, "f2": 0x71, "f3": 0x72, "f4": 0x73, "f5": 0x74, "f6": 0x75, "f7": 0x76, "f8": 0x77, "f9": 0x78, "f10": 0x79, "f11": 0x7A, "f12": 0x7B, "numlock": 0x90, "semicolon": 0xBA, "plus": 0xBB, "comma": 0xBC, "minus": 0xBD, "period": 0xBE, "forward_slash": 0xBF, "tilde": 0xC0, "left_bracket": 0xDB, "back_slash": 0xDC, "right_bracket": 0xDD, "quote": 0xDE }
+
+        # Packs up to 4 keys into a single value to send to the speedhack wine wrapper    
+        def convert_keycodes(key_string):
+            keys  = key_string.split(',')    
+            key_1 =  keycodes.get(keys[0].lower(), 0) if len(keys) > 0 else 0
+            key_2 =  keycodes.get(keys[1].lower(), 0) if len(keys) > 1 else 0
+            key_3 =  keycodes.get(keys[2].lower(), 0) if len(keys) > 2 else 0
+            key_4 =  keycodes.get(keys[3].lower(), 0) if len(keys) > 3 else 0
+
+            return (key_4 << 24) | (key_3 << 16) | (key_2) << 8 | key_1
+
+        def is_float(num):
+            try:
+                float(num)
+            except ValueError:
+                return False
+            
+            return True
+
+        def is_bool(num):
+            return num == "0" or num == "1"
+
+        def read_config_from_file(path):
+            path = os.path.expanduser(path)
+
+            if (self.log_file):
+                self.log_file.write("Looking for config in path: " + path + "\n")
+
+            try:
+                if not os.path.exists(path):
+                    return {}
+
+                if (self.log_file):
+                    self.log_file.write("Config found.\n")
+                conf_file = open(path)
+                data = json.loads(conf_file.read())
+
+                return {
+                    'speed': str(data['speed']) if ('speed' in data and is_float(data['speed'])) else None,
+                    'toggle': str(data['toggle']) if ('toggle' in data and is_bool(data['toggle'])) else None,
+                    'key': str(convert_keycodes(data['key'])) if ('key' in data) else None
+                }
+            except:
+                return {}
+
+        def get_first_key(items, key, default):
+            return next((item[key] for item in items if item is not None and key in item and item[key] is not None), default)
+
+        # Order of configs is important, default order is environ, game specific, home specific, finaly relative to proton
+        all_configs = []
+
+        env_configs = {}
+        env_configs['speed'] = self.env["SPEEDHACK_SPEED"] if "SPEEDHACK_SPEED" in self.env and is_float(self.env["SPEEDHACK_SPEED"]) else None
+        env_configs['toggle'] = self.env["SPEEDHACK_TOGGLE"] if "SPEEDHACK_TOGGLE" in self.env and is_bool(self.env["SPEEDHACK_TOGGLE"]) else None
+        env_configs['keys'] = None
+
+        all_configs.append(env_configs)
+
+        # We remove these from the env in case they were invalid
+        if "SPEEDHACK_SPEED" in self.env:
+            del self.env["SPEEDHACK_SPEED"]
+        if "SPEEDHACK_TOGGLE" in self.env:
+            del self.env["SPEEDHACK_TOGGLE"]
+        if "SPEEDHACK_KEYS" in self.env:
+            env_keycodes = convert_keycodes(self.env["SPEEDHACK_KEYS"])
+            if env_keycodes > 0:
+                env_configs['keys'] = str(env_keycodes)
+            del self.env["SPEEDHACK_KEYS"]
+
+        # Load JSON configs into our config files
+        game_config = read_config_from_file('~/.speedhack/' + str(os.environ.get("SteamGameId", 0)) + '.json')
+        all_configs.append(game_config)
+        home_config = read_config_from_file('~/.speedhack/speedhack.json')
+        all_configs.append(home_config)
+        proton_config_path = os.path.dirname(sys.argv[0]) + "/speedhack.json"
+        proton_config = read_config_from_file(proton_config_path)
+        all_configs.append(proton_config)
+
+        # Finally set the configs using the first value found in our all_configs array that is not None
+        keys = get_first_key(all_configs, 'keys', str(convert_keycodes('PAGE_UP')))
+        if keys is not None:
+            if (self.log_file):
+                self.log_file.write("Setting Speedhack Keys to " + str(keys) + "\n")
+            self.env["SPEEDHACK_KEYS"] = keys
+        
+        toggle = get_first_key(all_configs, 'toggle', "0")
+        if toggle is not None:
+            if (self.log_file):
+                self.log_file.write("Setting Speedhack Toggle to " + str(toggle) + "\n")
+            self.env["SPEEDHACK_TOGGLE"] = toggle
+        
+        speed = get_first_key(all_configs, 'speed', "2.5")
+        if speed is not None:
+            if (self.log_file):
+                self.log_file.write("Setting Speedhack Speed to " + str(speed) + "\n")
+            self.env["SPEEDHACK_SPEED"] = speed
+
+        if (self.log_file):
+            self.log_file.write("Done setting up the speedhack environment\n")
+            self.log_file.flush()
+
 
 if __name__ == "__main__":
     if not "STEAM_COMPAT_DATA_PATH" in os.environ:

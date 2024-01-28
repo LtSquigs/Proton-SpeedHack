@@ -1,316 +1,199 @@
-Introduction
+Proton Speed Hack
 ------------
 
-**Proton** is a tool for use with the Steam client which allows games which are
-exclusive to Windows to run on the Linux operating system. It uses Wine to
-facilitate this.
+**Proton Speed Hack** is a Steam Play compatability tool based off of Proton that adds speedhack capabilities to any game. This speedhack is based off of Cheat Engine's speedhack code.
 
-**Most users should use Proton provided by the Steam Client itself.** See
-[this Steam Community post][steam-play-introduction] for more details.
+This tool binds a keyboard button with which the user can press to speed up how fast a game is running.
 
-The source code is provided to enable advanced users the ability to alter
-Proton. For example, some users may wish to use a different version of Wine
-with a particular title.
+This functionality can be modified by various configuration methods. You can change the speed factor of the hack, what buttons are used to activate the hack, and wether or not the button must be held to activate or if it can be toggled on/off.
 
-**The changelog** is available on [our wiki][changelog].
+If you want to build this from source, you can find the original README for proton [here](https://github.com/ValveSoftware/Proton).
 
-[steam-play-introduction]: https://steamcommunity.com/games/221410/announcements/detail/1696055855739350561
-[changelog]: https://github.com/ValveSoftware/Proton/wiki/Changelog
+Please do not open any issues against the Proton repo if you encounter issues with this tool. Speedhacks are not guaranteed to be stable in all games. Additionally, do not use this in any scenario where you would not use Cheat Engine.
 
+- [Installation](#installation)
+  - [Installing Compatability Tool](#installing-compatability-tool)
+  - [Enabling Game + Gamepad](#enabling-game--gamepad)
+- [Configuration](#configuration)
+  - [Global Configuration](#global-configuration)
+  - [Game Configuration](#game-configuration)
+- [Key Values](#key-values)
+- [Developers: Signal Controls](#developers-signal-controls)
 
-Obtaining Proton sources
-------------------------
+Installation
+------------
 
-Acquire Proton's source by cloning <https://github.com/ValveSoftware/Proton>
-and checking out the branch you desire.
+### Installing Compatability Tool
 
-You can clone the latest Proton to your system with this command:
+In order to install the compatability tool you should do the following (if on a standard Steam Deck setup)
 
-```bash
-git clone --recurse-submodules https://github.com/ValveSoftware/Proton.git proton
-```
+1. Download a release from the [Releases](https://github.com/LtSquigs/Proton-SpeedHack/releases) page.
+2. Create a `~/.steam/root/compatibilitytools.d` directory if it does not exist.
+3. Extract the release tarball into `~/.steam/root/compatibilitytools.d/`.
+   * `tar -xf proton-speedhack-<version>.tar.gz -C ~/.steam/root/compatibilitytools.d/`
+4. Restart Steam.
 
-Be sure to update submodules when switching between branches:
+This should create a folder on your hard drive that looks something like `~/.steam/root/compatibilitytools.d/proton-speedhack-<version>/`
 
-```bash
-git checkout experimental_6.3
-git submodule update --init --recursive
-```
+Inside this folder there will be a file called `speedhack.json`. You can edit this file to change the global configuration options for the speedhack as [described below](#global-configuration).
 
-If you want to change any subcomponent, now is the time to do so. For
-example, if you wish to make changes to Wine, you would apply them to the
-`wine/` directory.
+### Enabling Game + Gamepad
 
+One the compatability tool has been installed, you can enable the speedhack on a game by doing the following:
 
-Building Proton
----------------
-
-Most of Proton builds inside the Proton SDK container with very few
-dependencies on the host side.
-
-## Preparing the build environment
-
-You need either a Docker or a Podman setup. We highly recommend [the rootless
-Podman setup][rootless-podman]. Please refer to your distribution's
-documentation for setup instructions (e.g. Arch [Podman][arch-podman] /
-[Docker][arch-docker], Debian [Podman][debian-podman] /
-[Docker][debian-docker]).
-
-[rootless-podman]: https://github.com/containers/podman/blob/main/docs/tutorials/rootless_tutorial.md
-[arch-podman]: https://wiki.archlinux.org/title/Podman
-[arch-docker]: https://wiki.archlinux.org/title/Docker
-[debian-podman]: https://wiki.debian.org/Podman
-[debian-docker]: https://wiki.debian.org/Docker
+1. Access the Steam Games Properties.
+2. At the bottom of the `Compatibility` tab, Check `Force the use of a specific Steam Play compatibility tool`, then select the version of Proton Speedhack you have installed.
+3. Update your Gamepad Bindings for the game to bind a button on your gamepad to the Activation Key for the speedhack (`Page Up` by default)
+4. Launch Game
 
 
-## The Easy Way
+Configuration
+------------
 
-We provide a top-level Makefile which will execute most of the build commands
-for you.
+There are two main ways to change the configuration of this speedhack tool: Config Files (global), Environment Variables (Game-Specific).
 
-After checking out the repository and updating its submodules, assuming that
-you have a working Docker or Podman setup, you can build and install Proton
-with a simple:
+### Global Configuration
 
-```bash
-make install
-```
+The following files are checked for the global configuration of the speedhack:
 
-If your build system is missing dependencies, it will fail quickly with a clear
-error message.
+`~/.speedhack/speedhack.json`
 
-After the build finishes, you may need to restart the Steam client to see the
-new Proton tool. The tool's name in the Steam client will be based on the
-currently checked out branch of Proton. You can override this name using the
-`build_name` variable.
+`<install_dir>/speedhack.json`
 
-See `make help` for other build targets and options.
-
-
-
-## Manual building
-
-### Configuring the build
-
-```bash
-mkdir ../build && cd ../build
-../proton/configure.sh --enable-ccache --build-name=my_build
-```
-
-Running `configure.sh` will create a `Makefile` allowing you to build Proton.
-The scripts checks if containers are functional and prompt you if any
-host-side dependencies are missing. You should run the command from a
-directory created specifically for your build.
-
-The configuration script tries to discover a working Docker or Podman setup
-to use, but you can force a compatible engine with
-`--container-engine=<executable_name>`.
-
-You can enable ccache with `--enable-cache` flag. This will mount your
-`$CCACHE_DIR` or `$HOME/.ccache` inside the container.
-
-`--proton-sdk-image=registry.gitlab.steamos.cloud/proton/soldier/sdk:<version>`
-can be used to build with a custom version of the Proton SDK images.
-
-Check `--help` for other configuration options.
-
-NOTE: If **SELinux** is in use, the Proton build container may fail to access
-your user's files. This is caused by [SELinux's filesystem
-labels][selinux-labels]. You may pass the `--relabel-volumes` switch to
-configure to cause the [container engine to relabel its
-bind-mounts][bind-mounts] and allow access to those files from within the
-container. This can be dangerous when used with system directories. Proceed
-with caution and refer your container engine's manual.
-
-[selinux-labels]: https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/6/html/security-enhanced_linux/sect-security-enhanced_linux-working_with_selinux-selinux_contexts_labeling_files
-[bind-mounts]: https://docs.docker.com/storage/bind-mounts/
-
-
-### Building
+The default configuration file should look something like this:
 
 ```
-make
+{
+    "speed": 2.5,
+    "toggle": 0,
+    "keys": "page_up"
+}
 ```
 
-**Important make targets:**
+`speed` is a non zero value that indicates by how much the speedhack speeds up the game.
 
-`make install` - install Proton into your user's Steam directory, see the [install Proton
-locally](#install-proton-locally) section for details.
+`toggle` is either `0` or `1` to indicate if the activation button should either be held to keep the hack active (`0`) or if the button toggles the hack on and off (`1`)
 
-`make redist` - create a redistribute build (`redist/`) that can be copied to
-`~/.steam/root/compatibilitytools.d/`.
+`keys` is a comma seperated list of 1-4 key names as defined below in [Key Values](#key-values).
 
-`make deploy` - create a deployment build (`deploy/`). This is what we use to
-deploy Proton to Steam users via Steamworks.
-
-`make module=<module> module` - build both 32- and 64-bit versions of the
-specified wine module. This allows rapid iteration on one module. This target
-is only useful after building Proton.
-
-`make dxvk` / `make vkd3d-proton` - rebuild DXVK / vkd3d-proton.
-
-
-### Debug Builds
-
-To prevent symbol stripping add `UNSTRIPPED_BUILD=1` to the `make`
-invocation. This should be used only with a clean build directory.
-
-E.g.:
+So if you wanted to change the speed to 4x, turn on toggle mode, and change the activation key to Shift + Page Down the config file would look like:
 
 ```
-mkdir ../debug-proton-build && cd ../debug-proton-build
-../proton/configure.sh --enable-ccache --build-name=debug_build
-make UNSTRIPPED_BUILD=1 install
+{
+    "speed": 4.0,
+    "toggle": 1,
+    "keys": "shift,page_down"
+}
 ```
 
+### Game Configuration
 
-Install Proton locally
-----------------------
-
-Steam ships with several versions of Proton, which games will use by default or
-that you can select in Steam Settings' Steam Play page. Steam also supports
-running games with local builds of Proton, which you can install on your
-machine.
-
-To install a local build of Proton into Steam, make a new directory in
-`~/.steam/root/compatibilitytools.d/` with a tool name of your choosing and
-place the directory containing your redistributable build under that path.
-
-The `make install` target will perform this task for you, installing the
-Proton build into the Steam folder for the current user. You will have to
-restart the Steam client for it to pick up on a new tool.
-
-A correct local tool installation should look similar to this:
+For game specific configurations you can use the following Environment variables to configure the options for the speedhack:
 
 ```
-compatibilitytools.d/my_proton/
-├── compatibilitytool.vdf
-├── filelock.py
-├── LICENSE
-├── proton
-├── proton_dist.tar
-├── toolmanifest.vdf
-├── user_settings.sample.py
-└── version
+SPEEDHACK_SPEED=2.5
+SPEEDHACK_TOGGLE=0
+SPEEDHACK_KEYS=page_up
 ```
 
-To enable your local build in Steam, go to the Steam Play section of the
-Settings window. If the build was correctly installed, you should see
-"proton-localbuild" in the drop-down list of compatibility tools.
+The fields for these variables accept the same values as described in the global configurations above.
 
-Each component of this software is used under the terms of their licenses.
-See the `LICENSE` files here, as well as the `LICENSE`, `COPYING`, etc files
-in each submodule and directory for details. If you distribute a built
-version of Proton to other users, you must adhere to the terms of these
-licenses.
+You can set these for a game by changing the Launch Options for the game.
 
+So if you wanted to change the speed to 4x, turn on toggle mode, and change the activation key to Shift + Page Down you wolud edit the Launch Options for the game to look like this
 
-Debugging
----------
-
-Proton builds have their symbols stripped by default. You can switch to
-"debug" beta branch in Steam (search for Proton in your library,
-Properties... -> BETAS -> select "debug") or build without stripping (see
-[Debug Builds section](#debug-builds)).
-
-The symbols are provided through the accompanying `.debug` files which may
-need to be explicitly loaded by the debugging tools. For GDB there's a helper
-script `wine/tools/gdbinit.py` (source it) that provides `load-symbol-files`
-(or `lsf` for short) command which loads the symbols for all the mapped files.
-
-
-`compile_commands.json`
------------------------
-
-For use with [clangd](https://clangd.llvm.org/) LSP server and similar tooling.
-
-Projects built using cmake or meson (e.g. vkd3d-proton) automatically come with
-`compile_commands.json`. For autotools (e.g. wine) you have to [configure the
-build](#configuring-the-build) with `--enable-bear` that uses
-[bear](https://github.com/rizsotto/Bear) to create the compilation database.
-It's not on by default as it make the build slightly slower.
-
-The build system collects all the created compile_commands.json files in a
-build subdirectory named `compile_commands/`.
-
-The paths are translated to point to the real source (i.e. not the rsynced
-copy). It still may depend on build directory for things like auto-generated
-`config.h` though and for wine it may be beneficial to run `tools/make_requests`
-in you source directories as those changes are not committed.
-
-You can then configure your editor to use that file for clangd in a few ways:
-
-1) directly - some editors/plugins allow you to specify the path to `compile_commands.json`
-2) via `.clangd` file, e.g.
-```bash
-cd src/proton/wine/
-cat > .clangd <<EOF
-CompileFlags:
-  CompilationDatabase: ../build/current-dev/compile_commands/wine64/
-EOF
 ```
-3) by symlinking:
-```bash
-ln -s ../build/current-dev/compile_commands/wine64/compile_commands.json .
+SPEEDHACK_SPEED=4 SPEEDHACK_TOGGLE=1 SPEEDHACK_KEYS=shift,page_down %command% 
 ```
 
+Alternatively you can create a game specific configuration json file in the following path:
 
-Runtime Config Options
-----------------------
+`~/.speedhack/<game_id>.json`
 
-Proton can be tuned at runtime to help certain games run. The Steam client sets
-some options for known games using the `STEAM_COMPAT_CONFIG` variable.
-You can override these options using the environment variables described below.
+Key Values
+------------
 
-The best way to set these environment overrides for all games is by renaming
-`user_settings.sample.py` to `user_settings.py` and modifying it appropriately.
-This file is located in the Proton installation directory in your Steam library
-(often `~/.steam/steam/steamapps/common/Proton #.#`).
+Key String | Keyboard Key 
+:-----:|:------:
+`0` - `9` | 0 - 9
+`a` - `z` | A - Z
+`f1` - `f12` | F1-F12
+`semicolon` | Semicolon (;)
+`plus` | Plus (+)
+`comma` | Comma (,)
+`minus` | Minus (-)
+`period` | Period (.)
+`forward_slash` | Forward Slash (/)
+`back_slash` | Back Slash (\\)
+`left_bracket` | Left Bracket ([)
+`right_bracket` | Right Bracket (])
+`quote` | Quote (")
+`tilde` | Tilde (~)
+`back` | Backspace
+`tab` | Tab
+`enter` | Enter/Return
+`shift` | Shift
+`control` | Control
+`alt` | Alt
+`left_win` | Left Windows
+`right_win` | Right Windows
+`caps_lock` | Caps Lock
+`esc` | Escape
+`space` | Space
+`page_up` | Page Up
+`page_down` | Page Down
+`end` | End
+`home` | Home
+`insert` | Insert Button
+`delete` | Delete Button
+`up` | Up Arrow
+`down` | Down Arrow
+`left` | Left Arrow
+`right` | Right Arrow
+`num0` - `num9` | Numpad 0 - 9
+`multiply` | Numpad Multiply
+`add` | Numpad Add
+`separator` | Numpad Seperator
+`subtract` | Numpad Subtract
+`decimal` | Numpad Decimal
+`divide` | Numpad Divide
+`numlock` | Numlock
 
-If you want to change the runtime configuration for a specific game, you can
-use the `Set Launch Options` setting in the game's `Properties` dialog in the
-Steam client. Set the variable, followed by `%command%`. For example, input
-"`PROTON_USE_WINED3D=1 %command%`" to use the OpenGL-based wined3d renderer
-instead of the Vulkan-based DXVK renderer.
+Developers: Signal Controls
+------------
 
-To enable an option, set the variable to a non-`0` value.  To disable an
-option, set the variable to `0`. To use Steam's default configuration, do
-not specify the variable at all.
+When running the Speedhack version of Proton, we listen to two signals that can be sent to the running `steam.exe` process to update the configuration of the speedhack.
 
-All of the below are runtime options. They do not effect permanent changes to
-the Wine prefix. Removing the option will revert to the previous behavior.
+The intention of these signals is to allow anyone to develop extensions/plugins (such as with Steam Decky Loader) that can update/manage the configurations of the Speedhack tool.
 
-| Compat config string  | Environment Variable               | Description  |
-| :-------------------- | :--------------------------------- | :----------- |
-|                       | `PROTON_LOG`                       | Convenience method for dumping a useful debug log to `$PROTON_LOG_DIR/steam-$APPID.log`. Set to `1` to enable default logging, or set to a string to be appended to the default `WINEDEBUG` channels. |
-|                       | `PROTON_LOG_DIR`                   | Output log files into the directory specified. Defaults to your home directory. |
-|                       | `PROTON_DUMP_DEBUG_COMMANDS`       | When running a game, Proton will write some useful debug scripts for that game into `$PROTON_DEBUG_DIR/proton_$USER/`. |
-|                       | `PROTON_DEBUG_DIR`                 | Root directory for the Proton debug scripts, `/tmp` by default. |
-|                       | `PROTON_WAIT_ATTACH`               | Wait for a debugger to attach to steam.exe before launching the game process. To attach to the game process at startup, debuggers should be set to follow child processes. |
-|                       | `PROTON_CRASH_REPORT_DIR`          | Write crash logs into this directory. Does not clean up old logs, so may eat all your disk space eventually. |
-| `wined3d`             | `PROTON_USE_WINED3D`               | Use OpenGL-based wined3d instead of Vulkan-based DXVK for d3d11, d3d10, and d3d9. |
-| `nod3d11`             | `PROTON_NO_D3D11`                  | Disable `d3d11.dll`, for d3d11 games which can fall back to and run better with d3d9. |
-| `nod3d10`             | `PROTON_NO_D3D10`                  | Disable `d3d10.dll` and `dxgi.dll`, for d3d10 games which can fall back to and run better with d3d9. |
-| `noesync`             | `PROTON_NO_ESYNC`                  | Do not use eventfd-based in-process synchronization primitives. |
-| `nofsync`             | `PROTON_NO_FSYNC`                  | Do not use futex-based in-process synchronization primitives. (Automatically disabled on systems with no `FUTEX_WAIT_MULTIPLE` support.) |
-| `noxim`               | `PROTON_NO_XIM`                    | Enabled by default. Do not attempt to use XIM (X Input Methods) support. XIM support is known to cause crashes with libx11 older than version 1.7. |
-| `enablenvapi`         | `PROTON_ENABLE_NVAPI`              | Enable NVIDIA's NVAPI GPU support library. |
-| `nativevulkanloader`  |                                    | Use the Vulkan loader shipped with the game instead of Proton's built-in Vulkan loader. This breaks VR support, but is required by a few games. |
-| `forcelgadd`          | `PROTON_FORCE_LARGE_ADDRESS_AWARE` | Force Wine to enable the LARGE_ADDRESS_AWARE flag for all executables. Enabled by default. |
-| `heapdelayfree`       | `PROTON_HEAP_DELAY_FREE`           | Delay freeing some memory, to work around application use-after-free bugs. |
-| `gamedrive`           | `PROTON_SET_GAME_DRIVE`            | Create an S: drive which points to the Steam Library which contains the game. |
-| `noforcelgadd`        |                                    | Disable forcelgadd. If both this and `forcelgadd` are set, enabled wins. |
-| `oldglstr`            | `PROTON_OLD_GL_STRING`             | Set some driver overrides to limit the length of the GL extension string, for old games that crash on very long extension strings. |
-| `vkd3dfl12`           |                                    | Force the Direct3D 12 feature level to 12, regardless of driver support. |
-| `vkd3dbindlesstb`     |                                    | Put `force_bindless_texel_buffer` into `VKD3D_CONFIG`. |
-| `nomfdxgiman`         | `WINE_DO_NOT_CREATE_DXGI_DEVICE_MANAGER` | Enable hack to work around video issues in some games due to incomplete IMFDXGIDeviceManager support. |
-| `noopwr`              | `WINE_DISABLE_VULKAN_OPWR`               | Enable hack to disable Vulkan other process window rendering which sometimes causes issues on Wayland due to blit being one frame behind. |
-| `hidenvgpu`           | `PROTON_HIDE_NVIDIA_GPU`           | Force Nvidia GPUs to always be reported as AMD GPUs. Some games require this if they depend on Windows-only Nvidia driver functionality. See also DXVK's nvapiHack config, which only affects reporting from Direct3D. |
-|                       | `WINE_FULLSCREEN_INTEGER_SCALING`  | Enable integer scaling mode, to give sharp pixels when upscaling. |
-| `cmdlineappend:`      |                                    | Append the string after the colon as an argument to the game command. May be specified more than once. Escape commas and backslashes with a backslash. |
-| `nowritewatch`        | `PROTON_NO_WRITE_WATCH`            | Disable support for memory write watches in ntdll. This is a very dangerous hack and should only be applied if you have verified that the game can operate without write watches. This improves performance for some very specific games (e.g. CoreRT-based games). |
-| `nosteamffmpeg`       | `PROTON_NO_STEAM_FFMPEG`           | Ignore ffmpeg that ships with Steam. Some videos may not play. |
-| `seccomp`             | `PROTON_USE_SECCOMP`               | **Note: Obsoleted in Proton 5.13.** In older versions, enable seccomp-bpf filter to emulate native syscalls, required for some DRM protections to work. |
-| `d9vk`                | `PROTON_USE_D9VK`                  | **Note: Obsoleted in Proton 5.0.** In older versions, use Vulkan-based DXVK instead of OpenGL-based wined3d for d3d9. |
+The two signals we listen for are `SIGUSR1` and `SIGUSR2` and both are expected to send an integer payload with them (using `sigqueue`) which has a specific format to update the configuration.
+
+The `SIGUSR1` signal is used to update the `speed` and `toggle` settings of the speedhack.
+
+The integer payload for `SIGUSR1` is expected to have the following structure:
+
+Bit | Value
+--:|:--
+1 | Toggle Update Flag. Set if the `toggle` value should be updated
+2 | Value Of `toggle` if update flag set
+3 | Toggle hack flag. If 1 toggles the hack on and off.
+4 | Speed Update Flag. Set if the `speed` value should be updated
+5-32 | Binary value of `speed` x 10. e.g. if new speed is `1.5` this should be `15`. Should be an `unsigned integer`
+
+
+The `SIGUSR2` signal is used to update the `keys` settings of the speedhack.
+
+The integer payload for `SIGUSR2` is expected to have the following structure:
+
+Bit  | Value
+--:  | :--
+1-8  | Keycode of first activation button.
+9-16 | Keycode of second activation button.
+17-24| Keycode of third activation button.
+25-32| Keycode of fourth activation button.
+
+The keycodes for these buttons should be [Windows Virtual Keycodes](https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes).
+
+If a keycode should not be set (e.g. you have < 4 buttons to register), then the value of the keycode should be `0`
 
 <!-- Target:  GitHub Flavor Markdown.  To test locally:  pandoc -f markdown_github -t html README.md  -->
